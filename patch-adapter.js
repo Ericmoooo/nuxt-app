@@ -20,7 +20,9 @@
 import { readdir, lstat, readlink, rm, cp, stat } from 'node:fs/promises'
 import { resolve, dirname, join } from 'node:path'
 
-const SERVER_NODE_MODULES = resolve('.output/server/node_modules')
+const TARGETS = [
+  resolve('.omega/compute/default/server/node_modules'),
+]
 
 async function findSymlinks(dir) {
   const symlinks = []
@@ -57,46 +59,55 @@ async function resolveSymlink(linkPath) {
 }
 
 async function patchSymlinks() {
-  console.log('Scanning for symlinks in .output/server/node_modules ...')
-
-  const symlinks = await findSymlinks(SERVER_NODE_MODULES)
-
-  if (symlinks.length === 0) {
-    console.log('No symlinks found. Nothing to patch.')
-    return
-  }
-
-  console.log(`Found ${symlinks.length} symlink(s) to resolve:\n`)
-
-  for (const linkPath of symlinks) {
-    const target = await resolveSymlink(linkPath)
-
-    // Verify the target actually exists
+  for (const nodeModulesDir of TARGETS) {
+    // Check if the directory exists
     try {
-      await stat(target)
+      await stat(nodeModulesDir)
     } catch {
-      console.warn(`  SKIP ${linkPath} -> target does not exist: ${target}`)
       continue
     }
 
-    console.log(`  ${linkPath}`)
-    console.log(`    -> ${target}`)
+    console.log(`\nScanning for symlinks in ${nodeModulesDir} ...`)
 
-    // Remove the symlink
-    await rm(linkPath, { force: true })
+    const symlinks = await findSymlinks(nodeModulesDir)
 
-    // Copy the resolved target into the symlink's former location
-    await cp(target, linkPath, { recursive: true })
-  }
+    if (symlinks.length === 0) {
+      console.log('No symlinks found. Nothing to patch.')
+      continue
+    }
 
-  // Clean up the .nitro dedup directory since it's no longer needed
-  const nitroDedupDir = join(SERVER_NODE_MODULES, '.nitro')
-  try {
-    await stat(nitroDedupDir)
-    await rm(nitroDedupDir, { recursive: true, force: true })
-    console.log(`\nRemoved dedup directory: ${nitroDedupDir}`)
-  } catch {
-    // .nitro dir doesn't exist, nothing to clean up
+    console.log(`Found ${symlinks.length} symlink(s) to resolve:\n`)
+
+    for (const linkPath of symlinks) {
+      const target = await resolveSymlink(linkPath)
+
+      // Verify the target actually exists
+      try {
+        await stat(target)
+      } catch {
+        console.warn(`  SKIP ${linkPath} -> target does not exist: ${target}`)
+        continue
+      }
+
+      console.log(`  ${linkPath}`)
+      console.log(`    -> ${target}`)
+
+      // Remove the symlink
+      await rm(linkPath, { force: true })
+
+      // Copy the resolved target into the symlink's former location
+      await cp(target, linkPath, { recursive: true })
+    }
+
+    // Clean up the .nitro dedup directory since it's no longer needed
+    const nitroDedupDir = join(nodeModulesDir, '.nitro')
+    try {
+      await stat(nitroDedupDir)
+      await rm(nitroDedupDir, { recursive: true, force: true })
+      console.log(`\nRemoved dedup directory: ${nitroDedupDir}`)
+    } catch {
+      // .nitro dir doesn't exist, nothing to clean up
+    }
   }
 
   console.log('\nDone. All symlinks resolved to real copies.')
